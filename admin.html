@@ -45,7 +45,7 @@
           <label class="block text-xs font-semibold mb-1">รูปภาพสินค้า (อัปโหลดจาก iPad Photos / Files)</label>
           <input type="file" id="prod-image-file" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-xl text-sm" accept="image/*">
         </div>
-        <button type="submit" class="w-full bg-red-600 hover:bg-red-500 font-bold py-3 rounded-xl transition">บันทึกสินค้าลงระบบ</button>
+        <button type="submit" id="submit-btn" class="w-full bg-red-600 hover:bg-red-500 font-bold py-3 rounded-xl transition">บันทึกสินค้าลงระบบ</button>
       </form>
     </section>
 
@@ -57,90 +57,107 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-    const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const SUPABASE_URL = 'https://sisvyhhxuhoooktkxbpz.supabase.co';
+    const SUPABASE_KEY = 'วาง_ANON_KEY_ยาวๆ_ตรงนี้';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     async function initAdmin() {
-      const { data: games } = await supabase.from('games').select('*');
+      const { data: games } = await supabaseClient.from('games').select('*').order('sort_order');
       const gameSelect = document.getElementById('prod-game');
-      gameSelect.innerHTML = games.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+      if (games && games.length > 0) {
+        gameSelect.innerHTML = games.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+      } else {
+        gameSelect.innerHTML = `<option value="">ไม่พบเกมในระบบ</option>`;
+      }
 
       loadProducts();
     }
 
     async function loadProducts() {
-      const { data: products } = await supabase.from('products').select('*, games(name)').order('created_at', { ascending: false });
+      const { data: products } = await supabaseClient.from('products').select('*, games(name)').order('created_at', { ascending: false });
       const list = document.getElementById('admin-products-list');
       
-      list.innerHTML = products.map(p => `
-        <div class="bg-slate-900 p-4 rounded-xl flex items-center justify-between border border-slate-800">
-          <div>
-            <span class="text-xs text-red-400 font-bold">${p.games?.name}</span>
-            <h4 class="font-bold">${p.title}</h4>
-            <div class="text-xs text-slate-400">ราคา: ฿${p.price} | สต็อก: ${p.stock} ชิ้น</div>
+      if (products && products.length > 0) {
+        list.innerHTML = products.map(p => `
+          <div class="bg-slate-900 p-4 rounded-xl flex items-center justify-between border border-slate-800">
+            <div>
+              <span class="text-xs text-red-400 font-bold">${p.games?.name || 'General'}</span>
+              <h4 class="font-bold">${p.title}</h4>
+              <div class="text-xs text-slate-400">ราคา: ฿${p.price} | สต็อก: ${p.stock} ชิ้น</div>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="toggleStock('${p.id}', ${p.stock})" class="px-3 py-1.5 rounded-lg text-xs font-bold ${p.stock > 0 ? 'bg-orange-600' : 'bg-green-600'}">
+                ${p.stock > 0 ? 'ปรับเป็นหมด' : 'เติมสต็อก'}
+              </button>
+              <button onclick="deleteProduct('${p.id}')" class="bg-red-950 text-red-400 hover:bg-red-900 px-3 py-1.5 rounded-lg text-xs font-bold">ลบ</button>
+            </div>
           </div>
-          <div class="flex gap-2">
-            <button onclick="toggleStock('${p.id}', ${p.stock})" class="px-3 py-1.5 rounded-lg text-xs font-bold ${p.stock > 0 ? 'bg-orange-600' : 'bg-green-600'}">
-              ${p.stock > 0 ? 'ปรับเป็นหมด' : 'เติมสต็อก'}
-            </button>
-            <button onclick="deleteProduct('${p.id}')" class="bg-red-950 text-red-400 hover:bg-red-900 px-3 py-1.5 rounded-lg text-xs font-bold">ลบ</button>
-          </div>
-        </div>
-      `).join('');
+        `).join('');
+      } else {
+        list.innerHTML = `<div class="text-center text-slate-500 py-4">ยังไม่มีสินค้าในระบบ</div>`;
+      }
     }
 
     document.getElementById('add-product-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      
-      const gameId = document.getElementById('prod-game').value;
-      const title = document.getElementById('prod-title').value;
-      const price = parseFloat(document.getElementById('prod-price').value);
-      const stock = parseInt(document.getElementById('prod-stock').value);
-      const description = document.getElementById('prod-desc').value;
-      const fileInput = document.getElementById('prod-image-file');
+      const submitBtn = document.getElementById('submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'กำลังบันทึกข้อมูล...';
 
-      let imageUrls = [];
+      try {
+        const gameId = document.getElementById('prod-game').value;
+        const title = document.getElementById('prod-title').value;
+        const price = parseFloat(document.getElementById('prod-price').value);
+        const stock = parseInt(document.getElementById('prod-stock').value);
+        const description = document.getElementById('prod-desc').value;
+        const fileInput = document.getElementById('prod-image-file');
 
-      if (fileInput.files.length > 0) {
-        const file = fileInput.files[0];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
-        
-        // ใช้ Bucket Name ASIVARASHOP ที่ตั้งไว้ใน Storage
-        const { data: storageData, error: uploadError } = await supabase.storage
-          .from('ASIVARASHOP')
-          .upload(fileName, file);
+        let imageUrls = [];
 
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage.from('ASIVARASHOP').getPublicUrl(fileName);
-          imageUrls.push(urlData.publicUrl);
+        if (fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${Date.now()}.${fileExt}`;
+          
+          const { data: storageData, error: uploadError } = await supabaseClient.storage
+            .from('asirashop-assets')
+            .upload(fileName, file);
+
+          if (!uploadError) {
+            const { data: urlData } = supabaseClient.storage.from('asirashop-assets').getPublicUrl(fileName);
+            imageUrls.push(urlData.publicUrl);
+          }
         }
+
+        await supabaseClient.from('products').insert([{
+          game_id: gameId,
+          title,
+          price,
+          stock,
+          description,
+          images: imageUrls
+        }]);
+
+        alert('บันทึกสินค้าลงระบบ ASIVARASHOP เรียบร้อย!');
+        document.getElementById('add-product-form').reset();
+        loadProducts();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'บันทึกสินค้าลงระบบ';
       }
-
-      await supabase.from('products').insert([{
-        game_id: gameId,
-        title,
-        price,
-        stock,
-        description,
-        images: imageUrls
-      }]);
-
-      alert('บันทึกสินค้าลงระบบ ASIVARASHOP เรียบร้อย!');
-      document.getElementById('add-product-form').reset();
-      loadProducts();
     });
 
     async function toggleStock(id, currentStock) {
       const newStock = currentStock > 0 ? 0 : 1;
-      await supabase.from('products').update({ stock: newStock }).eq('id', id);
+      await supabaseClient.from('products').update({ stock: newStock }).eq('id', id);
       loadProducts();
     }
 
     async function deleteProduct(id) {
       if (confirm('ยืนยันที่จะลบสินค้านี้?')) {
-        await supabase.from('products').delete().eq('id', id);
+        await supabaseClient.from('products').delete().eq('id', id);
         loadProducts();
       }
     }
